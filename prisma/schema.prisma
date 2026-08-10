@@ -1,0 +1,545 @@
+// Smile Pakistan — Prisma schema
+// Provider is postgresql for production use. In restricted sandboxes without
+// access to binaries.prisma.sh, `prisma generate`/`migrate` can't run here —
+// this schema was instead validated by applying the equivalent SQL DDL
+// directly (see prisma/verify.sql) against a local Postgres instance.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Identity & access
+// ─────────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  PATIENT
+  DOCTOR
+  RECEPTIONIST
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  fullName      String
+  phone         String?
+  role          UserRole  @default(PATIENT)
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  patient       Patient?
+  doctor        Doctor?
+  receptionist  Receptionist?
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  activationTokens AccountActivationToken[]
+
+  @@map("users")
+}
+
+// Set-password links emailed to patients booked online and doctors added
+// by an admin, both of whom start with an unusable placeholder password
+// hash. tokenHash stores a SHA-256 hash of the raw token that's actually
+// emailed — the raw value is never persisted, so a DB read alone can't be
+// used to take over an account.
+model AccountActivationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("account_activation_tokens")
+}
+
+// Granular, admin-configurable RBAC layer (in addition to the fast-path
+// User.role enum used for route protection).
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id    String @id @default(cuid())
+  key   String @unique // e.g. "appointments.cancel", "billing.refund"
+  label String
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// People
+// ─────────────────────────────────────────────────────────────────────────
+
+model Patient {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dob       DateTime?
+  gender    String?
+  address   String?
+  branchId  String?
+  branch    Branch?  @relation(fields: [branchId], references: [id])
+
+  appointments   Appointment[]
+  treatmentPlans TreatmentPlan[]
+  invoices       Invoice[]
+  prescriptions  Prescription[]
+  medicalRecords MedicalRecord[]
+  xrays          Xray[]
+  documents      Document[]
+  odontogram     OdontogramEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("patients")
+}
+
+model Doctor {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialty   String
+  bio         String?
+  branches    DoctorBranch[]
+
+  appointments    Appointment[]
+  treatmentPlans  TreatmentPlan[]
+  prescriptions   Prescription[]
+  clinicalNotes   ClinicalNote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("doctors")
+}
+
+model Receptionist {
+  id       String @id @default(cuid())
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("receptionists")
+}
+
+// Join table: a doctor can work across multiple branches
+model DoctorBranch {
+  doctorId String
+  branchId String
+  doctor   Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([doctorId, branchId])
+  @@map("doctor_branches")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Practice structure
+// ─────────────────────────────────────────────────────────────────────────
+
+model Branch {
+  id      String  @id @default(cuid())
+  name    String
+  city    String
+  address String
+  hours   String
+  isActive Boolean @default(true)
+
+  doctors       DoctorBranch[]
+  receptionists Receptionist[]
+  patients      Patient[]
+  appointments  Appointment[]
+  invoices      Invoice[]
+  workingHours  BranchWorkingHour[]
+  holidays      BranchHoliday[]
+
+  createdAt DateTime @default(now())
+
+  @@map("branches")
+}
+
+// Structured, per-weekday hours for a branch. `Branch.hours` remains as a
+// free-text display string (e.g. on marketing pages); these rows are the
+// source of truth the booking engine should eventually validate slots
+// against. weekday is 0 (Sunday) – 6 (Saturday), matching JS Date.getDay().
+model BranchWorkingHour {
+  id        String  @id @default(cuid())
+  branchId  String
+  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  weekday   Int
+  isClosed  Boolean @default(false)
+  openTime  String? // "10:00" 24h local time, null when isClosed
+  closeTime String? // "20:00"
+
+  @@unique([branchId, weekday])
+  @@map("branch_working_hours")
+}
+
+// One-off closures — holidays, maintenance days, etc. A row with no
+// startTime/endTime is closed all day.
+model BranchHoliday {
+  id        String   @id @default(cuid())
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  date      DateTime
+  label     String
+
+  createdAt DateTime @default(now())
+
+  @@map("branch_holidays")
+}
+
+model Treatment {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  category    String
+  shortDesc   String
+  priceFrom   Int
+  priceTo     Int
+  durationLabel String
+  isActive    Boolean  @default(true)
+
+  appointments    Appointment[]
+  treatmentPlanItems TreatmentPlanItem[]
+
+  createdAt DateTime @default(now())
+
+  @@map("treatments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Clinical workflow
+// ─────────────────────────────────────────────────────────────────────────
+
+enum AppointmentStatus {
+  REQUESTED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id          String            @id @default(cuid())
+  patientId   String
+  patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId    String
+  doctor      Doctor            @relation(fields: [doctorId], references: [id])
+  branchId    String
+  branch      Branch            @relation(fields: [branchId], references: [id])
+  treatmentId String
+  treatment   Treatment         @relation(fields: [treatmentId], references: [id])
+  startsAt    DateTime
+  status      AppointmentStatus @default(REQUESTED)
+  notes       String?
+
+  invoice       Invoice?
+  clinicalNotes ClinicalNote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([doctorId, startsAt])
+  @@index([patientId])
+  @@map("appointments")
+}
+
+model TreatmentPlan {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  title     String
+  status    String   @default("Active") // Active | Completed | On Hold
+  items     TreatmentPlanItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("treatment_plans")
+}
+
+model TreatmentPlanItem {
+  id              String        @id @default(cuid())
+  treatmentPlanId String
+  treatmentPlan   TreatmentPlan @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  treatmentId     String
+  treatment       Treatment     @relation(fields: [treatmentId], references: [id])
+  toothNumbers    String? // FDI notation, comma-separated e.g. "16,17"
+  status          String   @default("Planned") // Planned | In Progress | Done
+  estimatedCost   Int
+
+  @@map("treatment_plan_items")
+}
+
+model ClinicalNote {
+  id            String       @id @default(cuid())
+  appointmentId String
+  appointment   Appointment  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  doctorId      String
+  doctor        Doctor       @relation(fields: [doctorId], references: [id])
+  note          String
+
+  createdAt DateTime @default(now())
+
+  @@map("clinical_notes")
+}
+
+model MedicalRecord {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  allergies String?
+  conditions String?
+  medications String?
+
+  updatedAt DateTime @updatedAt
+
+  @@map("medical_records")
+}
+
+// Simplified FDI-notation tooth chart: one row per tooth per patient
+model OdontogramEntry {
+  id          String  @id @default(cuid())
+  patientId   String
+  patient     Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  toothNumber Int     // FDI notation, 11–48
+  condition   String  // Healthy | Decayed | Filled | Crowned | Missing | Implant
+  notes       String?
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([patientId, toothNumber])
+  @@map("odontogram")
+}
+
+model Prescription {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  medication String
+  dosage    String
+  duration  String
+  notes     String?
+
+  createdAt DateTime @default(now())
+
+  @@map("prescriptions")
+}
+
+model Xray {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  fileUrl   String
+  label     String
+  takenAt   DateTime @default(now())
+
+  @@map("xrays")
+}
+
+model Document {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  fileUrl   String
+  name      String
+  type      String // Report | Prescription | Consent Form | Other
+
+  createdAt DateTime @default(now())
+
+  @@map("documents")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Billing
+// ─────────────────────────────────────────────────────────────────────────
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  REFUNDED
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  patientId     String
+  patient       Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointmentId String?       @unique
+  appointment   Appointment?  @relation(fields: [appointmentId], references: [id])
+  branchId      String
+  branch        Branch        @relation(fields: [branchId], references: [id])
+  amount        Int           // PKR, minor-unit-free (rupees, not paisa)
+  status        InvoiceStatus @default(UNPAID)
+  description   String
+
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+
+  @@map("invoices")
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  STRIPE
+  PAYPAL
+  JAZZCASH
+  EASYPAISA
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  invoiceId String
+  invoice   Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount    Int
+  method    PaymentMethod
+  reference String?
+
+  createdAt DateTime @default(now())
+
+  @@map("payments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CMS
+// ─────────────────────────────────────────────────────────────────────────
+
+model Category {
+  id    String @id @default(cuid())
+  name  String @unique
+  slug  String @unique
+  blogs Blog[]
+
+  @@map("categories")
+}
+
+model Blog {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  excerpt     String
+  content     String
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+  coverImage  String?
+  status      String    @default("Draft") // Draft | Published | Scheduled
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("blogs")
+}
+
+model Testimonial {
+  id        String  @id @default(cuid())
+  name      String
+  city      String
+  quote     String
+  rating    Int     @default(5)
+  isPublished Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  @@map("testimonials")
+}
+
+model FAQ {
+  id       String @id @default(cuid())
+  question String
+  answer   String
+  category String @default("General")
+  sortOrder Int   @default(0)
+
+  @@map("faqs")
+}
+
+model Media {
+  id        String   @id @default(cuid())
+  url       String
+  fileName  String
+  mimeType  String
+  altText   String?
+
+  createdAt DateTime @default(now())
+
+  @@map("media")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// System
+// ─────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  channel   String   // email | sms | whatsapp | browser
+  isRead    Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  String?
+
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+model Setting {
+  key   String @id
+  value String
+
+  @@map("settings")
+}

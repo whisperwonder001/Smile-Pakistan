@@ -1,5 +1,12 @@
-import { auth } from "@/auth";
+import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
+import { authConfig } from "./auth.config";
+
+// Uses the edge-safe authConfig (no Prisma/bcrypt) rather than the full
+// @/auth — importing the full config here blew past Vercel's 1MB Edge
+// Function size limit. This only reads the JWT session, which doesn't
+// need the Credentials provider at all.
+const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;

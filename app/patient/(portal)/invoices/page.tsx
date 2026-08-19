@@ -3,6 +3,7 @@ import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/utils";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { PayNowButton } from "@/features/patient-portal/PayNowButton";
 
 const statusStyles: Record<string, string> = {
   PAID: "bg-success/10 text-success",
@@ -81,9 +82,7 @@ export default async function InvoicesPage() {
                     Receipt
                   </button>
                 ) : (
-                  <button className="rounded-full bg-gradient-to-r from-primary to-secondary px-4 py-2 text-xs font-semibold text-white">
-                    Pay Now
-                  </button>
+                  <PayNowButton invoiceId={inv.id} amount={inv.amount} description={inv.description} />
                 )}
               </div>
             </div>

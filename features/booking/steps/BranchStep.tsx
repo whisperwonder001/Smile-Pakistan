@@ -1,16 +1,33 @@
 "use client";
 
 import { MapPin, Clock } from "lucide-react";
-import { branches, Branch } from "@/lib/booking-data";
+import { BookingBranch as Branch } from "../actions";
 import { cn } from "@/lib/utils";
 
 export function BranchStep({
+  branches,
+  loading,
   selected,
   onSelect,
 }: {
+  branches: Branch[];
+  loading: boolean;
   selected: Branch | null;
   onSelect: (branch: Branch) => void;
 }) {
+  if (loading) {
+    return (
+      <div className="animate-pulse space-y-4">
+        <div className="h-6 w-48 rounded bg-slate-100" />
+        <div className="grid gap-4 sm:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-32 rounded-2xl bg-slate-100" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h2 className="font-display text-2xl font-extrabold text-text">

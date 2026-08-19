@@ -1,5 +1,5 @@
 import { Service } from "@/lib/services-data";
-import { Branch, Doctor } from "@/lib/booking-data";
+import { BookingBranch as Branch, BookingDoctor as Doctor } from "./actions";
 
 export interface PatientDetails {
   fullName: string;

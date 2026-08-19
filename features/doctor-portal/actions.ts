@@ -10,6 +10,76 @@ async function requireDoctor() {
   return session.user.doctorId;
 }
 
+/**
+ * Sets (or clears) a doctor's recurring weekly window for one branch +
+ * weekday. Simple model: one window per weekday per branch — replaces any
+ * existing rows for that slot rather than trying to reconcile multiple
+ * split-shift windows, since the doctor portal UI only exposes one window
+ * per day. The schema itself supports more; this is a UI-level choice.
+ */
+export async function setDoctorAvailability(input: {
+  branchId: string;
+  weekday: number;
+  isOff: boolean;
+  startTime?: string | null;
+  endTime?: string | null;
+}) {
+  const doctorId = await requireDoctor();
+  if (input.weekday < 0 || input.weekday > 6) throw new Error("Invalid weekday");
+  if (!input.isOff && (!input.startTime || !input.endTime)) {
+    throw new Error("Start and end time are required for a working day");
+  }
+
+  await prisma.doctorAvailability.deleteMany({
+    where: { doctorId, branchId: input.branchId, weekday: input.weekday },
+  });
+
+  if (!input.isOff) {
+    await prisma.doctorAvailability.create({
+      data: {
+        doctorId,
+        branchId: input.branchId,
+        weekday: input.weekday,
+        startTime: input.startTime!,
+        endTime: input.endTime!,
+      },
+    });
+  }
+
+  revalidatePath("/doctor/availability");
+}
+
+export async function createDoctorTimeOff(input: {
+  date: string;
+  allDay: boolean;
+  startTime?: string;
+  endTime?: string;
+  reason?: string;
+}) {
+  const doctorId = await requireDoctor();
+  if (!input.allDay && (!input.startTime || !input.endTime)) {
+    throw new Error("Start and end time are required unless it's the whole day");
+  }
+
+  await prisma.doctorTimeOff.create({
+    data: {
+      doctorId,
+      date: new Date(input.date + "T00:00:00"),
+      startTime: input.allDay ? null : input.startTime,
+      endTime: input.allDay ? null : input.endTime,
+      reason: input.reason?.trim() || null,
+    },
+  });
+
+  revalidatePath("/doctor/availability");
+}
+
+export async function deleteDoctorTimeOff(id: string) {
+  const doctorId = await requireDoctor();
+  await prisma.doctorTimeOff.deleteMany({ where: { id, doctorId } });
+  revalidatePath("/doctor/availability");
+}
+
 const CONDITIONS = ["Healthy", "Decayed", "Filled", "Crowned", "Missing", "Implant"] as const;
 
 export async function cycleToothCondition(patientId: string, toothNumber: number) {

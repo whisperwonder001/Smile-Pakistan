@@ -78,38 +78,16 @@ export function doctorsForCategory(category: string) {
 }
 
 /**
- * Deterministically generates a day's slots from a seed (date + doctor id)
- * so the same inputs always produce the same "availability" — avoids a
- * backend for this front-end milestone while still feeling realistic.
+ * treatmentCategories has no DB column — it's marketing-matching metadata
+ * ("which doctors handle Cosmetic treatments"), not a scheduling concept.
+ * Live booking data (features/booking/actions.ts) pulls real
+ * branches/doctors from the DB but looks up this tag map by doctor id to
+ * fill that field in. The arrays above remain the seed source of truth for
+ * branches/doctors themselves.
  */
-export function slotsForDay(dateISO: string, doctorId: string): { time: string; available: boolean }[] {
-  const seed = hashString(dateISO + doctorId);
-  const slots: { time: string; available: boolean }[] = [];
-  let hour = 10;
-  let minute = 0;
-  let i = 0;
-  while (hour < 21) {
-    const label = `${hour % 12 === 0 ? 12 : hour % 12}:${minute === 0 ? "00" : "30"} ${hour < 12 ? "AM" : "PM"}`;
-    const available = (seed + i * 7) % 5 !== 0; // ~80% available
-    slots.push({ time: label, available });
-    minute += 30;
-    if (minute === 60) {
-      minute = 0;
-      hour += 1;
-    }
-    i += 1;
-  }
-  return slots;
-}
-
-function hashString(input: string) {
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) {
-    hash = (hash << 5) - hash + input.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
+export const doctorCategoryTags: Record<string, string[]> = Object.fromEntries(
+  doctors.map((d) => [d.id, d.treatmentCategories])
+);
 
 export function nextDays(count: number) {
   const days: { iso: string; label: string; weekday: string }[] = [];

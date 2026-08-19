@@ -359,6 +359,35 @@ export async function runSeed(prisma: PrismaClient) {
     }
   }
 
+  console.log("Seeding doctor availability…");
+  // Default: each doctor works 10:00–18:00 Mon–Sat at every branch they're
+  // assigned to (comfortably inside every branch's working hours), so the
+  // booking flow has real slots out of the box. Doctors can adjust this
+  // from their portal afterwards.
+  const allDoctorBranches = await prisma.doctorBranch.findMany();
+  for (const db of allDoctorBranches) {
+    for (let weekday = 1; weekday <= 6; weekday++) {
+      await prisma.doctorAvailability.upsert({
+        where: {
+          doctorId_branchId_weekday_startTime: {
+            doctorId: db.doctorId,
+            branchId: db.branchId,
+            weekday,
+            startTime: "10:00",
+          },
+        },
+        update: {},
+        create: {
+          doctorId: db.doctorId,
+          branchId: db.branchId,
+          weekday,
+          startTime: "10:00",
+          endTime: "18:00",
+        },
+      });
+    }
+  }
+
   console.log("Seed complete.");
   console.log("Demo patient login: ayesha.khan@example.com / patient123");
   console.log("Demo admin login: admin@smilepakistan.pk / admin123");

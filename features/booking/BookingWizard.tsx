@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { StepIndicator } from "./StepIndicator";
 import { BookingState, emptyBooking, PatientDetails } from "./types";
-import { submitBooking } from "./actions";
+import { submitBooking, getBookingOptions, BookingBranch, BookingDoctor } from "./actions";
 import { TreatmentStep } from "./steps/TreatmentStep";
 import { BranchStep } from "./steps/BranchStep";
 import { DoctorStep } from "./steps/DoctorStep";
@@ -22,6 +22,18 @@ export function BookingWizard() {
   const [reference, setReference] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [branches, setBranches] = useState<BookingBranch[]>([]);
+  const [doctors, setDoctors] = useState<BookingDoctor[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+
+  useEffect(() => {
+    getBookingOptions()
+      .then(({ branches, doctors }) => {
+        setBranches(branches);
+        setDoctors(doctors);
+      })
+      .finally(() => setOptionsLoading(false));
+  }, []);
 
   function goTo(next: number) {
     setDirection(next > step ? 1 : -1);
@@ -92,12 +104,16 @@ export function BookingWizard() {
             )}
             {step === 2 && (
               <BranchStep
+                branches={branches}
+                loading={optionsLoading}
                 selected={booking.branch}
                 onSelect={(branch) => setBooking((b) => ({ ...b, branch }))}
               />
             )}
             {step === 3 && (
               <DoctorStep
+                doctors={doctors}
+                loading={optionsLoading}
                 branch={booking.branch}
                 service={booking.service}
                 selected={booking.doctor}
@@ -107,6 +123,7 @@ export function BookingWizard() {
             {step === 4 && (
               <DateTimeStep
                 doctor={booking.doctor}
+                branch={booking.branch}
                 dateISO={booking.dateISO}
                 time={booking.time}
                 onSelectDate={(dateISO) =>

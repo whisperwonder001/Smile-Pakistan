@@ -3,8 +3,70 @@
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/email";
 import { issueActivation } from "@/lib/activation";
+import { getAvailableSlots, TimeSlot } from "@/lib/availability";
+import { doctorCategoryTags } from "@/lib/booking-data";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+
+export interface BookingBranch {
+  id: string;
+  name: string;
+  city: string;
+  address: string;
+  hours: string;
+}
+
+export interface BookingDoctor {
+  id: string;
+  name: string;
+  role: string;
+  branchIds: string[];
+  treatmentCategories: string[];
+}
+
+/**
+ * Live branches + doctors for the booking wizard, replacing the old
+ * hardcoded lib/booking-data.ts arrays. treatmentCategories has no DB
+ * column (it's marketing-matching metadata, not a scheduling concept) so
+ * it's looked up from a small static tag map keyed by doctor id.
+ */
+export async function getBookingOptions(): Promise<{
+  branches: BookingBranch[];
+  doctors: BookingDoctor[];
+}> {
+  const [branches, doctors] = await Promise.all([
+    prisma.branch.findMany({ orderBy: { city: "asc" } }),
+    prisma.doctor.findMany({
+      include: { user: true, branches: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  return {
+    branches: branches.map((b) => ({
+      id: b.id,
+      name: b.name,
+      city: b.city,
+      address: b.address,
+      hours: b.hours,
+    })),
+    doctors: doctors.map((d) => ({
+      id: d.id,
+      name: d.user.fullName,
+      role: d.specialty,
+      branchIds: d.branches.map((db) => db.branchId),
+      treatmentCategories: doctorCategoryTags[d.id] ?? [],
+    })),
+  };
+}
+
+export async function getSlotsAction(
+  doctorId: string,
+  branchId: string,
+  dateISO: string
+): Promise<TimeSlot[]> {
+  return getAvailableSlots(doctorId, branchId, dateISO);
+}
 
 interface SubmitBookingInput {
   serviceSlug: string;

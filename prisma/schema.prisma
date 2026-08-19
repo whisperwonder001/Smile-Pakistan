@@ -135,11 +135,50 @@ model Doctor {
   treatmentPlans  TreatmentPlan[]
   prescriptions   Prescription[]
   clinicalNotes   ClinicalNote[]
+  availabilities  DoctorAvailability[]
+  timeOff         DoctorTimeOff[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("doctors")
+}
+
+// Recurring weekly working windows for a doctor at a specific branch.
+// A doctor can have more than one row per weekday (e.g. split shifts) and
+// different hours per branch, since a doctor can work at multiple branches.
+// weekday is 0 (Sunday) – 6 (Saturday), matching JS Date.getDay().
+model DoctorAvailability {
+  id        String  @id @default(cuid())
+  doctorId  String
+  doctor    Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  branchId  String
+  branch    Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  weekday   Int
+  startTime String // "10:00" 24h local time
+  endTime   String // "14:00"
+
+  @@unique([doctorId, branchId, weekday, startTime])
+  @@index([doctorId, weekday])
+  @@map("doctor_availabilities")
+}
+
+// One-off exceptions to a doctor's recurring availability — leave, a
+// half-day out, a conference, etc. A row with no startTime/endTime blocks
+// the whole day for that doctor.
+model DoctorTimeOff {
+  id        String    @id @default(cuid())
+  doctorId  String
+  doctor    Doctor    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  date      DateTime
+  startTime String?
+  endTime   String?
+  reason    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([doctorId, date])
+  @@map("doctor_time_off")
 }
 
 model Receptionist {
@@ -184,6 +223,7 @@ model Branch {
   invoices      Invoice[]
   workingHours  BranchWorkingHour[]
   holidays      BranchHoliday[]
+  doctorAvailabilities DoctorAvailability[]
 
   createdAt DateTime @default(now())
 

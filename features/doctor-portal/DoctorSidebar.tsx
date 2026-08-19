@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { LayoutDashboard, Users, CalendarDays, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, CalendarDays, CalendarClock, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
   { href: "/doctor/dashboard", label: "Today's Schedule", icon: LayoutDashboard },
   { href: "/doctor/patients", label: "Patients", icon: Users },
   { href: "/doctor/appointments", label: "Appointments", icon: CalendarDays },
+  { href: "/doctor/availability", label: "Availability", icon: CalendarClock },
 ];
 
 export function DoctorSidebar({

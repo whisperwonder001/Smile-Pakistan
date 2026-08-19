@@ -1,23 +1,47 @@
 "use client";
 
-import { nextDays, slotsForDay, Doctor } from "@/lib/booking-data";
+import { useEffect, useState } from "react";
+import { nextDays } from "@/lib/booking-data";
+import { getSlotsAction, BookingDoctor as Doctor, BookingBranch as Branch } from "../actions";
 import { cn } from "@/lib/utils";
 
 export function DateTimeStep({
   doctor,
+  branch,
   dateISO,
   time,
   onSelectDate,
   onSelectTime,
 }: {
   doctor: Doctor | null;
+  branch: Branch | null;
   dateISO: string | null;
   time: string | null;
   onSelectDate: (iso: string) => void;
   onSelectTime: (time: string) => void;
 }) {
-  const days = nextDays(10);
-  const slots = dateISO && doctor ? slotsForDay(dateISO, doctor.id) : [];
+  const days = nextDays(14);
+  const [slots, setSlots] = useState<{ time: string; available: boolean }[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
+  useEffect(() => {
+    if (!dateISO || !doctor || !branch) {
+      setSlots([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingSlots(true);
+    getSlotsAction(doctor.id, branch.id, dateISO)
+      .then((result) => {
+        if (!cancelled) setSlots(result);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSlots(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dateISO, doctor, branch]);
 
   return (
     <div>
@@ -53,6 +77,20 @@ export function DateTimeStep({
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">
             Available times
           </p>
+          {loadingSlots && (
+            <div className="mt-3 grid grid-cols-3 gap-2.5 sm:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+              ))}
+            </div>
+          )}
+          {!loadingSlots && slots.length === 0 && (
+            <p className="mt-3 text-sm text-muted">
+              {doctor?.name ?? "This doctor"} isn't scheduled at this branch on this day —
+              try another date.
+            </p>
+          )}
+          {!loadingSlots && (
           <div className="mt-3 grid grid-cols-3 gap-2.5 sm:grid-cols-4">
             {slots.map((s) => (
               <button
@@ -74,6 +112,7 @@ export function DateTimeStep({
               </button>
             ))}
           </div>
+          )}
         </div>
       )}
     </div>

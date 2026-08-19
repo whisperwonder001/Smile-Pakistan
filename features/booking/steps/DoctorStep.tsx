@@ -1,20 +1,37 @@
 "use client";
 
-import { doctors, Doctor, Branch } from "@/lib/booking-data";
+import { BookingDoctor as Doctor, BookingBranch as Branch } from "../actions";
 import { Service } from "@/lib/services-data";
 import { cn } from "@/lib/utils";
 
 export function DoctorStep({
+  doctors,
+  loading,
   branch,
   service,
   selected,
   onSelect,
 }: {
+  doctors: Doctor[];
+  loading: boolean;
   branch: Branch | null;
   service: Service | null;
   selected: Doctor | null;
   onSelect: (doctor: Doctor) => void;
 }) {
+  if (loading) {
+    return (
+      <div className="animate-pulse space-y-4">
+        <div className="h-6 w-48 rounded bg-slate-100" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-20 rounded-2xl bg-slate-100" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const available = doctors.filter((d) => {
     const branchMatch = branch ? d.branchIds.includes(branch.id) : true;
     const categoryMatch = service

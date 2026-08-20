@@ -165,6 +165,37 @@ writes real `User`/`Patient`/`Appointment`/`Invoice` rows on submission.
   pre-activated so the demo logins in this doc keep working unchanged.
 
 **Still stubbed / not built:**
+- Booking wizard is now fully DB-backed — `getBookingOptions()` pulls real
+  branches/doctors, and `getSlotsAction()` computes real available slots
+  from `DoctorAvailability`, `DoctorTimeOff`, `BranchWorkingHour`,
+  `BranchHoliday`, and existing appointments (`lib/availability.ts`).
+  **Correction to an earlier status note:** the entire booking flow —
+  branches, doctors, and time slots — was previously hardcoded/randomly
+  generated in `lib/booking-data.ts` and never touched the database at
+  all. This pass replaced it end to end, including a new migration at
+  `prisma/migrations/20260812000000_add_doctor_availability/`.
+- Doctor Portal › Availability — doctors can now set their own weekly
+  working hours per branch and add one-off time off
+  (`features/doctor-portal/AvailabilityPanel.tsx`, `TimeOffSection.tsx`),
+  which is what the booking engine above actually reads from. Default
+  hours (Mon–Sat 10:00–18:00) are seeded for existing doctors so the demo
+  isn't empty on first load.
+- Patient Portal › Invoices "Pay Now" now opens a real checkout modal
+  (`features/patient-portal/PayNowButton.tsx`) that records a `Payment`
+  row and marks the invoice `PAID`. **This is explicitly demo-mode, not a
+  real payment gateway** — no Stripe key or JazzCash/EasyPaisa merchant
+  account exists yet (those require external approvals, see the
+  architecture doc's gaps section). The UI says "Demo mode" directly on
+  the checkout screen so this is never mistaken for a live charge.
+  Swapping in a real gateway later means replacing the body of
+  `payInvoiceDemo()` in `features/patient-portal/actions.ts` — the
+  Payment row shape and the rest of the app (dashboards, admin billing,
+  receipts) already expect exactly this.
+
+**Still stubbed / not built:**
+- The Pay Now checkout doesn't validate card details (no Luhn check,
+  expiry check, etc.) since no real gateway is behind it — intentional for
+  a demo, not an oversight to fix before payments go live
 - Editing or deactivating an existing branch isn't wired up yet — only
   adding new branches and managing their hours/holidays is
 - The new Roles & Permissions screen manages the `Role`/`Permission`/
@@ -173,23 +204,21 @@ writes real `User`/`Patient`/`Appointment`/`Invoice` rows on submission.
   enum (`PATIENT`/`DOCTOR`/`RECEPTIONIST`/`ADMIN`). Wiring middleware and
   server actions to check granular permissions instead of the role enum is
   the next step before this screen has real teeth.
-- The booking wizard doesn't check `BranchWorkingHour`/`BranchHoliday`
-  against requested slots yet — hours/holidays are stored and manageable
-  but not yet enforced when a patient books
 - Media Library, SEO Settings, Audit Log viewer, and Backup Settings are
   schema-ready (`Media`, `AuditLog`, `Setting` tables exist) but have no
   admin UI yet
 - Notification preferences on the Patient Portal profile page are UI-only
   (no `notification_prefs` column yet)
-- Doctor schedule/working-hours management isn't built — doctors can
-  update appointment status and patient records, but can't yet block off
-  time or set their own availability
 - A doctor can only see clinical notes from *their own* visits with a
   patient (by design, for now) — no cross-doctor shared chart view yet
+- Real payment gateway integration remains blocked on external merchant
+  accounts (Stripe API key, JazzCash/EasyPaisa merchant IDs) — the one
+  item on the original roadmap that genuinely can't be finished inside
+  this environment
 
 ## A note on how this was verified
 
-The sandbox this was built in blocks `binaries.prisma.sh` (same network
+ `binaries.prisma.sh` (same network
 allowlist restriction that blocked the Unsplash CDN and Google Fonts CDN
 earlier in this project), so `prisma generate` / `migrate dev` couldn't
 run here directly. To verify the schema was still real and correct:
@@ -209,3 +238,13 @@ None of that required faking anything — it's the same schema, same seed
 logic, just validated via direct SQL instead of the Prisma CLI because of
 the sandbox's network restriction. `npx prisma migrate dev` will work
 normally for you and will produce an equivalent (idempotent) result.
+
+**Update (doctor availability + demo payments pass):** this later pass
+hit the same `binaries.prisma.sh` block, and this time a working local
+Postgres instance from step 1 above wasn't available either, so
+verification fell back to brace/parenthesis-balance checks plus manual
+review on every new/changed file, rather than a real compiler or DB run.
+That's a weaker guarantee than the SQL-validated passes above — worth a
+careful look at the Vercel build log after this deploys, since that's the
+first point these changes get checked by a real TypeScript compiler
+against a real generated Prisma client.
